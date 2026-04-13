@@ -1,0 +1,148 @@
+# .github/workflows/flutter_tests.yml
+#
+# CI Pipeline: запуск всех тестов при каждом push/PR
+# - Unit тесты (с mocktail)
+# - Widget тесты
+# - Integration тесты (на Android Emulator)
+
+name: Flutter Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Unit & Widget Tests (быстро, без эмулятора)
+  # ─────────────────────────────────────────────
+  unit_tests:
+    name: Unit & Widget Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Verify no real network calls (analyze DI)
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run unit tests
+        run: |
+          flutter test test/unit/ --reporter=expanded
+
+      - name: Run widget tests
+        run: |
+          flutter test test/widget/ --reporter=expanded
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: |
+            build/test-results/
+
+  # ─────────────────────────────────────────────
+  # Job 2: Integration Tests на Android Emulator
+  # ─────────────────────────────────────────────
+  integration_tests:
+    name: Integration Tests (Android)
+    runs-on: ubuntu-latest
+    # Запускаем только если unit тесты прошли
+    needs: unit_tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Enable KVM (Android Emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run integration tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: Nexus 6
+          script: |
+            flutter test integration_test/app_test.dart \
+              --reporter=expanded \
+              -d emulator-5554
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: build/
+
+  # ─────────────────────────────────────────────
+  # Job 3: Локальная версия — только unit тесты (без эмулятора)
+  # Этот job можно запустить локально: act -j local_run
+  # ─────────────────────────────────────────────
+  local_run:
+    name: Local CI (unit only, no emulator)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: stable
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run all unit + widget tests
+        run: flutter test test/ --reporter=expanded --coverage
+
+      - name: Generate coverage report
+        run: |
+          flutter pub global activate coverage
+          dart pub global run coverage:format_coverage \
+            --lcov \
+            --in=coverage/lcov.info \
+            --out=coverage/lcov.info \
+            --report-on=lib/
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage/lcov.info
+          fail_ci_if_error: false

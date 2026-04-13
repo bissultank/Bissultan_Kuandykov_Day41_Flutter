@@ -1,0 +1,23 @@
+name: tasks_app
+description: Flutter app with Mock & Integration Tests (Day 41)
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  mocktail: ^1.0.3
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
